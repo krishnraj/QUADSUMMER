@@ -1,0 +1,1004 @@
+#include "PinChangeInt1.h"
+#include <Servo.h>
+int led = 13;
+double angles[4];
+#define MAXANGLE 160
+//////////////////////////define///////////////////////////////////
+#include "Wire.h"
+
+Servo mymotor4, mymotor1, mymotor2, mymotor3;
+
+uint8_t buffer[14];
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
+
+float ax1=0, ay1=0, az1=0;
+float gx1=0, gy1=0, gz1=0;
+#define MPU6050_Defalt_Addr     0x68
+
+#define MPU6050_CLOCK_INTERNAL          0x00
+#define MPU6050_CLOCK_PLL_XGYRO         0x01
+#define MPU6050_CLOCK_PLL_YGYRO         0x02
+#define MPU6050_CLOCK_PLL_ZGYRO         0x03
+#define MPU6050_CLOCK_PLL_EXT32K        0x04
+#define MPU6050_CLOCK_PLL_EXT19M        0x05
+#define MPU6050_CLOCK_KEEP_RESET        0x07
+
+#define MPU6050_GYRO_FS_250         0x00
+#define MPU6050_GYRO_FS_500         0x01
+#define MPU6050_GYRO_FS_1000        0x02
+#define MPU6050_GYRO_FS_2000        0x03
+
+
+#define MPU6050_ACCEL_FS_2          0x00
+#define MPU6050_ACCEL_FS_4          0x01
+#define MPU6050_ACCEL_FS_8          0x02
+#define MPU6050_ACCEL_FS_16         0x03
+
+#define MPU6050_RA_PWR_MGMT_1       0x6B
+#define MPU6050_RA_PWR_MGMT_2       0x6C
+#define MPU6050_PWR1_CLKSEL_BIT         2
+#define MPU6050_PWR1_CLKSEL_LENGTH      3
+#define MPU6050_RA_GYRO_CONFIG      0x1B
+
+#define MPU6050_GCONFIG_FS_SEL_BIT      4
+#define MPU6050_GCONFIG_FS_SEL_LENGTH   2
+
+#define MPU6050_RA_ACCEL_CONFIG     0x1C
+#define MPU6050_ACONFIG_AFS_SEL_BIT         4
+#define MPU6050_ACONFIG_AFS_SEL_LENGTH      2
+
+#define MPU6050_PWR1_SLEEP_BIT          6
+#define MPU6050_RA_FIFO_EN          0x23
+
+#define MPU6050_TEMP_FIFO_EN_BIT    7
+#define MPU6050_XG_FIFO_EN_BIT      6
+#define MPU6050_YG_FIFO_EN_BIT      5
+#define MPU6050_ZG_FIFO_EN_BIT      4
+#define MPU6050_ACCEL_FIFO_EN_BIT   3
+
+#define MPU6050_RA_I2C_MST_CTRL     0x24
+#define MPU6050_I2C_MST_CLK_BIT     3
+#define MPU6050_I2C_MST_CLK_LENGTH  4
+#define MPU6050_RA_ACCEL_XOUT_H     0x3B
+
+#define MPU6050_RA_SMPLRT_DIV       0x19
+
+#define MPU6050_RA_CONFIG              0x1A
+#define MPU6050_CFG_DLPF_CFG_BIT          2
+#define MPU6050_CFG_DLPF_CFG_LENGTH       3
+
+#define ON 1
+#define OFF 0
+#define STOP 1100
+#define XAXIS 0
+#define YAXIS 1
+#define ZAXIS 2
+
+#define MINCHECK (MINCOMMAND + 100)
+#define MINCOMMAND 1000
+
+#define FRONT1 MOTOR1
+#define FRONT2 MOTOR2
+#define REAR1 MOTOR3
+#define REAR2 MOTOR4
+
+#define LASTMOTOR (MOTOR4+1)
+
+
+#define MOTOR1 0
+#define MOTOR2 1
+#define MOTOR3 2
+#define MOTOR4 3
+
+
+#define MINCOMMAND 1050
+#define MAXCOMMAND 1916
+
+
+#define YAW_DIRECTION -1
+#define YAW_DIRECTION 1
+
+
+#define MOTORPIN0 7
+#define MOTORPIN1 6
+#define MOTORPIN2 5
+#define MOTORPIN3 4
+
+#define MIN_RUDD 1200
+#define MAX_RUDD 1800
+#define MIN_THROT 1300
+#define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
+
+#define RATE_XAXIS_PID_IDX  0
+#define RATE_YAXIS_PID_IDX  1
+#define ZAXIS_PID_IDX  2
+uint8_t devAddr;
+
+
+
+unsigned long frameCounter = 0; 
+int minArmedThrottle; 
+
+float throttle =0;
+float eleval=0;
+float ruddval=0;
+float alival=0;
+byte motorArmed = OFF;
+byte safetyCheck = OFF;
+//byte maxLimit = OFF;
+//byte minLimit = OFF;
+//float filteredAccel[3] = {0.0,0.0,0.0};
+boolean inFlight = false; 
+float rotationSpeedFactor = 1.0;
+int i;
+
+unsigned long previousTime = 0;
+unsigned long currentTime = 0;
+unsigned long deltaTime = 0;
+unsigned long hundredHZpreviousTime = 0;
+int motorMaxCommand[4] = {1900,1900,1900,1900};
+int motorMinCommand[4] = {1100,1100,1100,1100};
+float motorCommand[4] ;
+float motorAxisCommandRoll = 0;
+float motorAxisCommandPitch = 0;
+float motorAxisCommandYaw = 0; 
+float gyroRate[3] = {0.0,0.0,0.0};
+float gyroZero[3] = {0,0,0};
+float gyroSample[3] = {0,0,0}; 
+byte gyroSampleCount = 0;
+float set1=0, set2=0 ,set3=0;
+
+////////////////////////////////////////RECEIVER CODE//////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define AILERON  0
+#define ELEVATOR 1
+#define THROTTLE 2
+#define RUDDER   3
+
+#define AILERON_IN  10
+#define ELEVATOR_IN 11
+#define THROTTLE_IN 12
+#define RUDDER_IN   13
+
+uint8_t rc_pins[4] = {AILERON_IN, ELEVATOR_IN, THROTTLE_IN, RUDDER_IN};
+uint8_t rc_flags[4] = {1, 2, 4, 8};
+uint16_t rc_values[4] = {0, 0, 0, 1500};
+
+volatile uint8_t rc_shared_flags;
+volatile uint16_t rc_shared_values[4];
+volatile uint32_t rc_shared_ts[4];
+
+void rc_channel_change(uint8_t id) {
+  if (digitalRead(rc_pins[id]) == HIGH) {
+    rc_shared_ts[id] = micros();
+  }
+  else {
+    rc_shared_values[id] = (uint16_t)(micros() - rc_shared_ts[id]);
+    rc_shared_flags |= rc_flags[id];
+  }
+}
+
+void rc_aileron_change()  { rc_channel_change(AILERON);  }
+void rc_elevator_change() { rc_channel_change(ELEVATOR); }
+void rc_throttle_change() { rc_channel_change(THROTTLE); }
+void rc_rudder_change()   { rc_channel_change(RUDDER);   }
+
+void rc_setup_interrupts() {
+  PCintPort::attachInterrupt(rc_pins[AILERON],  &rc_aileron_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[ELEVATOR], &rc_elevator_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[THROTTLE], &rc_throttle_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[RUDDER],   &rc_rudder_change, CHANGE);
+}
+
+void rc_process_channels() {
+  static uint8_t flags;
+  
+  if (rc_shared_flags) {
+    noInterrupts();
+    flags = rc_shared_flags;
+    
+    if (flags & rc_flags[0]) rc_values[0] = rc_shared_values[0];
+    if (flags & rc_flags[1]) rc_values[1] = rc_shared_values[1];
+    if (flags & rc_flags[2]) rc_values[2] = rc_shared_values[2];
+    if (flags & rc_flags[3]) rc_values[3] = rc_shared_values[3];
+    
+    rc_shared_flags = 0;
+    interrupts(); 
+  }
+
+  flags = 0;
+}
+
+
+void rc_print_channels() {
+  static char str[64];
+ 
+  sprintf(str, "AILE: %d, ELEV: %d, THRO: %d, RUDD: %d\n",
+    rc_values[0], rc_values[1], rc_values[2], rc_values[3]
+  );
+ 
+  Serial.print(str); 
+}
+
+void rc_channel_map()  {
+ 
+ angles[0]=(double)(rc_values[0]-920)*160/1196;        //configure later..
+ angles[1]=(double)(rc_values[1]-920)*160/1176; 
+ angles[2]=(double)(rc_values[2]-1108)*160/820; 
+ angles[3]=(double)(rc_values[3]-1000)*160/1048; 
+ 
+ for(int i=0;i<4;i++) { 
+    if(angles[i] < 0)
+      angles[i] = 0;
+    if(angles[i] > MAXANGLE)
+      angles[i] = MAXANGLE;
+ 
+ }  
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+/*uint16_t roll(uint16_t rc_){}
+uint16_t pitch(uint16_t rc_ELEVATOR){}
+uint16_t yaw(uint16_t){}*/
+/////////////////////////I2Cdev//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ bool writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t* data) {
+    uint8_t status = 0;
+        Wire.beginTransmission(devAddr);
+        Wire.write((uint8_t) regAddr); // send address
+    
+    for (uint8_t i = 0; i < length; i++) 
+            Wire.write((uint8_t) data[i]);
+   
+        status = Wire.endTransmission();
+    return status == 0;
+}
+/////////////////////////////////////////////////////////////////////////////////
+bool writeBit(uint8_t devAddr, uint8_t regAddr, uint8_t bitNum, uint8_t data) {
+    uint8_t b;
+    readByte(devAddr, regAddr, &b);
+    b = (data != 0) ? (b | (1 << bitNum)) : (b & ~(1 << bitNum));
+    return writeByte(devAddr, regAddr, b);
+}
+//////////////////////////////////////////////////////////
+int8_t readByte(uint8_t devAddr, uint8_t regAddr, uint8_t *data) {
+    return readBytes(devAddr, regAddr, 1, data);
+}
+////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *data) {
+    int8_t count = 0;
+    for (uint8_t k = 0; k < length; k += min(length, BUFFER_LENGTH)) {
+                Wire.beginTransmission(devAddr);
+                Wire.write(regAddr);
+                Wire.endTransmission();
+                Wire.beginTransmission(devAddr);
+                Wire.requestFrom(devAddr, (uint8_t)min(length - k, BUFFER_LENGTH));
+        
+                for (; Wire.available(); count++) {
+                    data[count] = Wire.read();
+                }
+            }
+    return count;
+}
+////////////////////////////////////////////////////////////////////////////////////////
+bool writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data) {
+    return writeBytes(devAddr, regAddr, 1, &data);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBit(uint8_t devAddr, uint8_t regAddr, uint8_t bitNum, uint8_t *data) {
+    uint8_t b;
+    uint8_t count = readByte(devAddr, regAddr, &b);
+    *data = b & (1 << bitNum);
+    return count;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////
+bool writeBits(uint8_t devAddr, uint8_t regAddr, uint8_t bitStart, uint8_t length, uint8_t data) {
+    uint8_t b;
+    if (readByte(devAddr, regAddr, &b) != 0) {
+        uint8_t mask = ((1 << length) - 1) << (bitStart - length + 1);
+        data <<= (bitStart - length + 1); // shift data into correct position
+        data &= mask; // zero all non-important bits in data
+        b &= ~(mask); // zero all important bits in existing byte
+        b |= data; // combine data with existing byte
+        return writeByte(devAddr, regAddr, b);
+    } else {
+        return false;
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBits(uint8_t devAddr, uint8_t regAddr, uint8_t bitStart, uint8_t length, uint8_t *data) {
+   
+    uint8_t count, b;
+    if ((count = readByte(devAddr, regAddr, &b )) != 0) {
+        uint8_t mask = ((1 << length) - 1) << (bitStart - length + 1);
+        b &= mask;
+        b >>= (bitStart - length + 1);
+        *data = b;
+    }
+    return count;
+}
+//////////////////////////////MPU6050/////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void MPU6050(){
+  devAddr=MPU6050_Defalt_Addr;
+}
+///////////////////////////////////////////////////////////////////////////////////
+void initialize() {
+    setClockSource(MPU6050_CLOCK_PLL_XGYRO);
+    setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+    setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+    setSleepEnabled(false); 
+}
+/////////////////////////////////////////////////////////////////////////////////////////
+void setClockSource(uint8_t source) {
+    writeBits(devAddr, MPU6050_RA_PWR_MGMT_1, MPU6050_PWR1_CLKSEL_BIT, MPU6050_PWR1_CLKSEL_LENGTH, source);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+void setFullScaleGyroRange(uint8_t range) {
+    writeBits(devAddr, MPU6050_RA_GYRO_CONFIG, MPU6050_GCONFIG_FS_SEL_BIT, MPU6050_GCONFIG_FS_SEL_LENGTH, range);
+}
+///////////////////////////////////////////////////////////////////////////////////////
+void setFullScaleAccelRange(uint8_t range) {
+    writeBits(devAddr, MPU6050_RA_ACCEL_CONFIG, MPU6050_ACONFIG_AFS_SEL_BIT, MPU6050_ACONFIG_AFS_SEL_LENGTH, range);
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+void setSleepEnabled(bool enabled) {
+    writeBit(devAddr, MPU6050_RA_PWR_MGMT_1, MPU6050_PWR1_SLEEP_BIT, enabled);
+}
+////////////////////////////////////////////////////////////////////////////////////////
+void setRate(uint8_t rate) {
+    writeByte(devAddr, MPU6050_RA_SMPLRT_DIV, rate);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+void setDLPFMode(uint8_t mode) {
+    writeBits(devAddr, MPU6050_RA_CONFIG, MPU6050_CFG_DLPF_CFG_BIT, MPU6050_CFG_DLPF_CFG_LENGTH, mode);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void getMotion6(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz) {
+    readBytes(devAddr, MPU6050_RA_ACCEL_XOUT_H, 14, buffer);
+    *ax = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *ay = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *az = (((int16_t)buffer[4]) << 8) | buffer[5];
+    *gx = (((int16_t)buffer[8]) << 8) | buffer[9];
+    *gy = (((int16_t)buffer[10]) << 8) | buffer[11];
+    *gz = (((int16_t)buffer[12]) << 8) | buffer[13];
+   /**/
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+/*void convert(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz){
+   ax1=(float)ax/16384;
+    ay1=(float)ay/16384;
+    az1=(float)az/16384;
+    gx1=(float)gx/131;
+    gy1=(float)gy/131;
+    gz1=(float)gz/131;
+    Serial.print(gx1);Serial.print("\t");
+}*/
+
+
+////////////////////////////////////////////////////////AEROQUAD CODE///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void process100HzTask() {
+  
+ // G_Dt = (currentTime - hundredHZpreviousTime) / 1000000.0;
+ //` hundredHZpreviousTime = currentTime;
+  evaluateGyroRate();        
+  processFlightControl();
+  
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void processFlightControl() {
+  calculateFlightError();
+  if (motorArmed==ON) {
+    applyMotorCommand();
+    }
+  
+ //  else motorCommand[FRONT1] = 1100; motorCommand[FRONT2] = 1100; motorCommand[REAR1] =1100; motorCommand[REAR2]=1100;   }
+
+ for (byte motor = 0; motor < LASTMOTOR; motor++) {
+    motorCommand[motor] = constrain(motorCommand[motor], motorMinCommand[motor], motorMaxCommand[motor]);
+  }
+ if (motorArmed == ON) {
+    writeMotors();
+  }
+ if (motorArmed== OFF){
+   for (byte motor = 0; motor < LASTMOTOR; motor++) {
+    motorCommand[motor] =1100;
+  }
+    writeMotors();
+ }
+ // Serial.print("FRONT1");Serial.print("\t");Serial.print(motorCommand[MOTOR1]); Serial.print("\t"); Serial.print("FRONT2");Serial.print("\t");Serial.print(motorCommand[MOTOR2]); Serial.print("\t"); Serial.print("REAR1");Serial.print("\t");Serial.print(motorCommand[MOTOR3]); Serial.print("\t"); Serial.print("REAR2");Serial.print("\t");Serial.println(motorCommand[MOTOR4]);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  
+struct PIDdata {
+  float P, I, D;
+  float lastError;
+  // AKA experiments with PID
+  float previousPIDTime;
+  float integratedError;
+  float windupGuard; // Thinking about having individual wind up guards for each PID
+} PID[3];
+
+
+void getpiddata(){
+  PID [RATE_XAXIS_PID_IDX].P = 74;
+  PID [RATE_XAXIS_PID_IDX].I = 0;
+  PID [RATE_XAXIS_PID_IDX].D =  -1;
+
+  PID [RATE_YAXIS_PID_IDX].P = 74;
+  PID [RATE_YAXIS_PID_IDX].I = 0;
+  PID [RATE_YAXIS_PID_IDX].D = -1;
+
+  PID [ZAXIS_PID_IDX].P = 125;
+  PID [ZAXIS_PID_IDX].I = 0;
+  PID [ZAXIS_PID_IDX].D = 0;  
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void calculateFlightError()
+{
+  ruddval=((float)rc_values[3]-1500)/100;
+  throttle=(float)rc_values[2];
+  eleval=((float)rc_values[1]-1500)/100;
+  alival=((float)rc_values[0]-1500)/100;
+    const float commandedYaw = constrain(ruddval, -PI, PI);
+   motorAxisCommandYaw = updatePID(commandedYaw, gyroRate[ZAXIS], &PID[ZAXIS_PID_IDX]); 
+   motorAxisCommandRoll = updatePID(alival, gyroRate[XAXIS]*rotationSpeedFactor, &PID[RATE_XAXIS_PID_IDX]);
+   motorAxisCommandPitch = updatePID(eleval, -gyroRate[YAXIS]*rotationSpeedFactor, &PID[RATE_YAXIS_PID_IDX]);
+//   Serial.println(eleval);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void applyMotorCommand() {
+  motorCommand[FRONT1] = throttle + motorAxisCommandPitch + (YAW_DIRECTION * motorAxisCommandYaw) + motorAxisCommandRoll;
+  motorCommand[FRONT2] = throttle + motorAxisCommandPitch - (YAW_DIRECTION * motorAxisCommandYaw)  - motorAxisCommandRoll ;
+  motorCommand[REAR1] = throttle - motorAxisCommandPitch - (YAW_DIRECTION * motorAxisCommandYaw) + motorAxisCommandRoll;
+  motorCommand[REAR2] = throttle - motorAxisCommandPitch + (YAW_DIRECTION * motorAxisCommandYaw) - motorAxisCommandRoll;
+ // Serial.println(eleval);
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void writeMotors() {
+    mymotor1.writeMicroseconds(motorCommand[MOTOR1]);
+    mymotor2.writeMicroseconds(motorCommand[MOTOR2]);
+    mymotor3.writeMicroseconds(motorCommand[MOTOR3]);
+    mymotor4.writeMicroseconds(motorCommand[MOTOR4]);
+  /*analogWrite(MOTORPIN0, motorCommand[MOTOR1] / 8);
+  analogWrite(MOTORPIN1, motorCommand[MOTOR2] / 8);
+  analogWrite(MOTORPIN2, motorCommand[MOTOR3] / 8);                             ////////////WHY DIVIDE BY 8 WE HAVE ALREADY MAPPED////
+  analogWrite(MOTORPIN3, motorCommand[MOTOR4] / 8); */
+// Serial.print("FRONT1");Serial.print("\t");Serial.print(motorCommand[MOTOR1]); Serial.print("\t"); Serial.print("FRONT2");Serial.print("\t");Serial.print(motorCommand[MOTOR2]); Serial.print("\t"); Serial.print("REAR1");Serial.print("\t");Serial.print(motorCommand[MOTOR3]); Serial.print("\t"); Serial.print("REAR2");Serial.print("\t");Serial.println(motorCommand[MOTOR4]);
+ 
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+float updatePID(float targetPosition, float currentPosition, struct PIDdata* PIDparameters) {
+
+  // AKA PID experiments
+  const float deltaPIDTime = (currentTime - PIDparameters->previousPIDTime) / 1000000.0;
+
+  PIDparameters->previousPIDTime = currentTime; // AKA PID experiments
+  float error = targetPosition - currentPosition;
+  //Serial.print(error);Serial.print("\t");
+  if (inFlight) {
+    PIDparameters->integratedError += error * deltaPIDTime;
+  }
+  else {
+    PIDparameters->integratedError = 0.0;
+  }
+  PIDparameters->integratedError = constrain(PIDparameters->integratedError, -PIDparameters->windupGuard, PIDparameters->windupGuard);
+  float dTerm = PIDparameters->D * (currentPosition - PIDparameters->lastError) / (deltaPIDTime * 100); // dT fix from Honk
+  PIDparameters->lastError = currentPosition;
+
+  return (PIDparameters->P * error) + (PIDparameters->I * PIDparameters->integratedError) + dTerm;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void evaluateGyroRate() {
+  gyroRate[XAXIS]=gx1/180*3.14;
+  gyroRate[YAXIS]=gy1/180*3.14;                                 ///////////////////////   CONFIRM THE DIRECTIONS OF GYRO
+  gyroRate[ZAXIS]=gz1/180*3.14;
+  //Serial.println(gyroRate[YAXIS]);
+ //Serial.print(gyroRate[XAXIS]); Serial.print("\t");  Serial.print(gyroRate[YAXIS]); Serial.print("\t");  Serial.print(gyroRate[ZAXIS]);Serial.println("\t");
+}
+///////////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////////////////
+void arming(){
+  if(rc_values[3]<=MIN_RUDD&&throttle<=MIN_THROT){
+    motorArmed=1;
+    inFlight= false;
+  //  digitalWrite(led, LOW);
+    }
+  if(rc_values[3]>=MAX_RUDD&&throttle<=MIN_THROT){
+    motorArmed=0;
+   // digitalWrite(led, HIGH);
+    inFlight= true;
+    
+    }}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/* BMP085 Extended Example Code
+  by: Jim Lindblom
+  SparkFun Electronics
+  date: 1/18/11
+  license: CC BY-SA v3.0 - http://creativecommons.org/licenses/by-sa/3.0/
+  
+  Get pressure and temperature from the BMP085 and calculate altitude.
+  Serial.print it out at 9600 baud to serial monitor.
+
+  Update (7/19/11): I've heard folks may be encountering issues
+  with this code, who're running an Arduino at 8MHz. If you're 
+  using an Arduino Pro 3.3V/8MHz, or the like, you may need to 
+  increase some of the delays in the bmp085ReadUP and 
+  bmp085ReadUT functions.
+*/
+
+//#include <Wire.h>
+
+#define BMP085_ADDRESS 0x77  // I2C address of BMP085
+
+const unsigned char OSS = 0;  // Oversampling Setting
+
+// Calibration values
+float ac1;
+float ac2; 
+float ac3; 
+unsigned long ac4;
+unsigned long ac5;
+unsigned long ac6;
+float b1; 
+float b2;
+float mb;
+float mc;
+float md;
+
+// b5 is calculated in bmp085GetTemperature(...), this variable is also used in bmp085GetPressure(...)
+// so ...Temperature(...) must be called before ...Pressure(...).
+long b5; 
+
+float temperature;
+float pressure;
+
+const float p0 = 101325;     // Pressure at sea level (Pa)
+float altitude;
+boolean isReadPressure = false;
+float rawPressureSum = 0;
+byte rawPressureSumCount = 0;
+byte pressureCount = 0;
+unsigned long rawPressure = 0;
+long rawTemperature = 0;
+float baroRawAltitude   = 0.0;
+float pressureFactor = 1/5.255;
+float baroAltitude      = 0.0; 
+float baroGroundAltitude = 0.0;
+float baroSmoothFactor   = 0.025;
+unsigned long timer = 0;
+float c3,c4,c5,c6;
+float b01;
+float x0,x1,x2,y0,y1,y2,x,y,z;
+float p00,p01,p02;
+float Mc,Md,tempdiff;
+
+
+void initializeBaro() {
+//delay(7000);
+  pressure=0;
+  baroGroundAltitude = 0.0;
+  pressureFactor = 1/5.255;
+  
+  ac1 = bmp085ReadInt(0xAA);
+  ac2 = bmp085ReadInt(0xAC);
+  ac3 = bmp085ReadInt(0xAE);
+  ac4 = bmp085ReadInt(0xB0);
+  ac4 = 34206;
+  ac5 = bmp085ReadInt(0xB2);
+  ac6 = bmp085ReadInt(0xB4);
+  b1 = bmp085ReadInt(0xB6);
+  b2 = bmp085ReadInt(0xB8);
+  mb = bmp085ReadInt(0xBA);
+  mc = bmp085ReadInt(0xBC);
+  md = bmp085ReadInt(0xBE);
+  
+  // Calculation for floating point baro
+  c3 = 160*pow(2,-15)*ac3;
+  c4 = 0.001*pow(2,-15)*ac4;
+  b01 = 160*160*pow(2,-30)*b1;
+  
+  x0 = ac1;
+  x1 = 160*pow(2,-13)*ac2;
+  x2 = 160*160*pow(2,-25)*b2;
+  
+  y0 = c4*pow(2,15);
+  y1 = c4*c3;
+  y2 = c4*b01;
+  
+  p00 = (3791-8)/1600;
+  p01 = 1-7357*pow(2,-20);
+  p02 = 3038*100*pow(2,-36);
+  
+  
+
+ // Serial.print("b1 -");Serial.print(b1);Serial.print("  b2 -");Serial.println(b2);
+  isReadPressure = false;
+  pressureCount = 0;
+  measureBaro();
+  delay(5); // delay for temperature
+  measureBaro();
+  delay(10); // delay for pressure
+  measureGroundBaro();
+  // check if measured ground altitude is valid
+  while (abs(baroRawAltitude - baroGroundAltitude) > 0.25) {
+    delay(26);
+    measureGroundBaro();
+  }
+  baroAltitude = baroGroundAltitude;
+ // Serial.print("Intializing Done");
+}
+// Stores all of the bmp085's calibration values into global variables
+// Calibration values are required to calculate temp and pressure
+// This function should be called at the beginning of the program
+/*void bmp085Calibration()
+{
+  
+  ac1 = bmp085ReadInt(0xAA);
+  ac2 = bmp085ReadInt(0xAC);
+  ac3 = bmp085ReadInt(0xAE);
+  ac4 = bmp085ReadInt(0xB0);
+  ac5 = bmp085ReadInt(0xB2);
+  ac6 = bmp085ReadInt(0xB4);
+  b1 = bmp085ReadInt(0xB6);
+  b2 = bmp085ReadInt(0xB8);
+  mb = bmp085ReadInt(0xBA);
+  mc = bmp085ReadInt(0xBC);
+  md = bmp085ReadInt(0xBE);
+  initializeBaro();
+}*/
+
+void measureBaro() {
+  measureBaroSum();
+}
+
+void measureGroundBaro() {
+  // measure initial ground pressure (multiple samples)
+  float altSum = 0.0;
+  for (int i=0; i < 50; i++) {
+    measureBaro();
+        altSum += baroRawAltitude;
+    delay(12);
+  }
+  baroGroundAltitude = altSum / 50;
+}
+
+
+float bmp085GetTemperature(unsigned int ut)
+{
+c5 = 0.00625*pow(2,-15)*ac5;
+c6 = ac6;
+Mc = pow(2,11)*0.00625*0.00625*mc;
+Md = 0.00625*md;
+
+float temp;
+temp = c5*(ut-c6);
+return (temp + (Mc/(temp+Md)));
+
+}
+
+float bmp085GetPressure(unsigned long up)
+{
+tempdiff = temperature - 25;
+x = x2*tempdiff*tempdiff+x1*tempdiff+x0;
+y = y2*tempdiff*tempdiff+y1*tempdiff+y0;
+
+z = (up-x)/y;
+//Serial.print(" Pressure = ");Serial.println( p02*z*z+p01*z+p00 );
+return p02*z*z+p01*z+p00;
+}
+
+
+// Read 2 bytes from the BMP085
+// First byte will be from 'address'
+// Second byte will be from 'address'+1
+int bmp085ReadInt(unsigned char address)
+{
+ // Serial.println(" Reading ");
+  unsigned char msb, lsb;
+  
+  Wire.beginTransmission(BMP085_ADDRESS);
+  Wire.write(address);
+  Wire.endTransmission();
+  
+  Wire.requestFrom(BMP085_ADDRESS, 2);
+  while(Wire.available()<2)
+    ;
+  msb = Wire.read();
+  lsb = Wire.read();
+ 
+
+  return (int) msb<<8 | lsb;
+  }
+
+// Read the uncompensated temperature value
+unsigned int bmp085ReadUT()
+{
+  unsigned int ut;
+  
+  // Write 0x2E into Register 0xF4
+  // This requests a temperature reading
+  Wire.beginTransmission(BMP085_ADDRESS);
+  Wire.write(0xF4);
+  Wire.write(0x2E);
+  Wire.endTransmission();
+  
+  // Wait at least 4.5ms
+  delay(5);
+  
+  // Read two bytes from registers 0xF6 and 0xF7
+  ut = bmp085ReadInt(0xF6);
+  return ut;
+}
+
+// Read the uncompensated pressure value
+unsigned long bmp085ReadUP()
+{
+  unsigned char msb, lsb, xlsb;
+  unsigned long up = 0;
+  
+  // Write 0x34+(OSS<<6) into register 0xF4
+  // Request a pressure reading w/ oversampling setting
+  Wire.beginTransmission(BMP085_ADDRESS);
+  Wire.write(0xF4);
+  Wire.write(0x34 + (OSS<<6));
+  Wire.endTransmission();
+  
+  // Wait for conversion, delay time dependent on OSS
+  delay(2 + (3<<OSS));
+  
+  // Read register 0xF6 (MSB), 0xF7 (LSB), and 0xF8 (XLSB)
+  Wire.beginTransmission(BMP085_ADDRESS);
+  Wire.write(0xF6);
+  Wire.endTransmission();
+  Wire.requestFrom(BMP085_ADDRESS, 3);
+  
+  // Wait for data to become available
+  while(Wire.available() < 3)
+    ;
+  msb = Wire.read();
+  lsb = Wire.read();
+  xlsb = Wire.read();
+  
+  up = (((unsigned long) msb << 16) | ((unsigned long) lsb << 8) | (unsigned long) xlsb) >> (8-OSS);
+  
+  return up;
+}
+
+void measureBaroSum() {
+  // switch between pressure and temperature measurements
+  // each loop, since it is slow to measure pressure
+  if (isReadPressure) {
+    rawPressureSum += bmp085ReadUP();
+    rawPressureSumCount++;
+    if (pressureCount == 2) {
+      
+      pressureCount = 0;
+      isReadPressure = false;
+    } 
+    pressureCount++;
+  } 
+  else { // select must equal TEMPERATURE
+        rawTemperature = (long)bmp085ReadUT();
+        temperature=bmp085GetTemperature(rawTemperature);
+        evaluateBaroAltitude(); 
+
+    isReadPressure = true;
+  }
+}
+
+void evaluateBaroAltitude() {
+if (rawPressureSumCount == 0) { // it may occur at init time that no pressure has been read yet!
+    return;
+  }
+  rawPressure = rawPressureSum / rawPressureSumCount;
+  rawPressureSum = 0.0;
+  rawPressureSumCount = 0;
+  pressure=bmp085GetPressure(rawPressure);
+  baroRawAltitude = 44330 * (1 - pow((pressure/1013.250), pressureFactor));
+  //Serial.print(" baroRawAltitude = ");Serial.println((float)baroRawAltitude);
+  baroAltitude = filterSmooth(baroRawAltitude, baroAltitude, baroSmoothFactor);
+}
+
+const float getBaroAltitude() {
+  return (baroAltitude- baroGroundAltitude);
+}
+
+float filterSmooth(float currentData, float previousData, float smoothFactor) 
+{
+  if (smoothFactor != 1.0) //only apply time compensated filter if smoothFactor is applied
+  {
+    return (previousData * (1.0 - smoothFactor) + (currentData * smoothFactor)); 
+  }
+  return currentData; //if smoothFactor == 1.0, do not calculate, just bypass!
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*void processAltitudeHold()
+{
+  
+  if (altitudeHoldState == ON) {
+    int altitudeHoldThrottleCorrection = INVALID_THROTTLE_CORRECTION;
+    /*computer altitude error!
+    #if defined AltitudeHoldRangeFinder
+      if (isOnRangerRange(rangeFinderRange[ALTITUDE_RANGE_FINDER_INDEX])) {
+        if (sonarAltitudeToHoldTarget == INVALID_RANGE) {
+          sonarAltitudeToHoldTarget = rangeFinderRange[ALTITUDE_RANGE_FINDER_INDEX];
+        }
+        altitudeHoldThrottleCorrection = updatePID(sonarAltitudeToHoldTarget, rangeFinderRange[ALTITUDE_RANGE_FINDER_INDEX], &PID[SONAR_ALTITUDE_HOLD_PID_IDX]);
+        altitudeHoldThrottleCorrection = constrain(altitudeHoldThrottleCorrection, minThrottleAdjust, maxThrottleAdjust);
+      }
+    #endif
+ //   #if defined AltitudeHoldBaro
+      if (altitudeHoldThrottleCorrection == INVALID_THROTTLE_CORRECTION) {
+        altitudeHoldThrottleCorrection = updatePID(baroAltitudeToHoldTarget, getBaroAltitude(), &PID[BARO_ALTITUDE_HOLD_PID_IDX]);
+        altitudeHoldThrottleCorrection = constrain(altitudeHoldThrottleCorrection, minThrottleAdjust, maxThrottleAdjust);
+      }
+  //  #endif        
+    if (altitudeHoldThrottleCorrection == INVALID_THROTTLE_CORRECTION) {
+      throttle = rc_values[2];
+      return;
+    }
+    
+    // ZDAMPENING COMPUTATIONS
+   // #if defined AltitudeHoldBaro || defined AltitudeHoldRangeFinder
+      float zDampeningThrottleCorrection = -updatePID(0.0, estimatedZVelocity, &PID[ZDAMPENING_PID_IDX]);
+      zDampeningThrottleCorrection = constrain(zDampeningThrottleCorrection, minThrottleAdjust, maxThrottleAdjust);
+   // #endif
+
+    
+    if (abs(altitudeHoldThrottle - rc_values[2]) > altitudeHoldPanicStickMovement) {
+      altitudeHoldState = ALTPANIC; // too rapid of stick movement so PANIC out of ALTHOLD
+    } 
+    else {
+      
+      if (rc_values[2] > (altitudeHoldThrottle + altitudeHoldBump)) { // AKA changed to use holdThrottle + ALTBUMP - (was MAXCHECK) above 1900
+        //#if defined AltitudeHoldBaro
+          baroAltitudeToHoldTarget += ALTITUDE_BUMP_SPEED;
+       // #endif
+        #if defined AltitudeHoldRangeFinder
+          float newalt = sonarAltitudeToHoldTarget + ALTITUDE_BUMP_SPEED;
+          if (isOnRangerRange(newalt)) {
+            sonarAltitudeToHoldTarget = newalt;
+          }
+        #endif
+      }
+      
+      if (rc_values[2] < (altitudeHoldThrottle - altitudeHoldBump)) { // AKA change to use holdThorrle - ALTBUMP - (was MINCHECK) below 1100
+ //       #if defined AltitudeHoldBaro
+          baroAltitudeToHoldTarget -= ALTITUDE_BUMP_SPEED;
+   //     #endif
+        #if defined AltitudeHoldRangeFinder
+          float newalt = sonarAltitudeToHoldTarget - ALTITUDE_BUMP_SPEED;
+          if (isOnRangerRange(newalt)) {
+            sonarAltitudeToHoldTarget = newalt;
+          }
+        #endif
+      }
+    }
+    throttle = altitudeHoldThrottle + altitudeHoldThrottleCorrection + zDampeningThrottleCorrection;
+  }
+  else {
+    throttle = receiverCommand[THROTTLE];
+  }
+}*/
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  mymotor1.attach(7);
+  mymotor2.attach(6);
+  mymotor3.attach(5);
+  mymotor4.attach(4);  
+  rc_setup_interrupts();
+  MPU6050();
+  initialize();
+  setRate(0);
+  setDLPFMode(4);
+  getpiddata();
+ // pinMode(led, OUTPUT); 
+// motorArmed=0;
+//Serial.println(motorArmed);
+      initializeBaro(); 
+  for(i=0;i<100;i++){
+    getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    set1=set1 + (float)gx/131 ;
+    set2=set2 + (float)gy/131 ;
+    set3=set3 + (float)gz/131 ;
+  }
+  set1 = set1/100;
+  set2 = set2/100;
+  set3 = set3/100;
+//Serial.print(set1);  Serial.print("\t");  Serial.print(set2); Serial.print("\t");  Serial.print(set3);
+
+delay(1000);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+void loop() { 
+  currentTime = micros();
+  
+  // Serial.println(motorArmed);
+  arming();
+  rc_process_channels();
+  // Serial.println(motorArmed);
+  // rc_channel_map();
+  getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  // convert(&ax, &ay, &az, &gx, &gy, &gz);
+  // rc_print_channels();
+  /********************************to print the values of accel, gyro and receiever values************************
+ 
+  Serial.print("a/g:\t");*/
+//Serial.print((float)ax/16384); Serial.print("\t");
+// **************************** 
+//  delay(1000); */  
+// void convert(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz){
+// for(i=0;i<5;i++){
+    ax1=((float)ax/16384);
+    ay1=((float)ay/16384);
+    az1=((float)az/16384);
+    gx1=(((float)gx/131) - set1);
+    gy1=(((float)gy/131) - set2);
+    gz1=(((float)gz/131) - set3);
+   
+     if((millis() - timer) > 50) // 20Hz
+  {
+    timer = millis();
+    measureBaro();
+
+    Serial.print("altitude : ");
+    Serial.print(getBaroAltitude());
+    Serial.println();
+  }
+ /*  ax1=ax1/5;
+   ay1=ay1/5;
+   az1=az1/5;
+   gx1=gx1/5;
+   gy1=gy1/5;
+   gz1=gz1/5;*/
+  //Serial.print((float)ay1); Serial.print("\t");  Serial.print((float)az1); Serial.print("\t");  Serial.print((float)gx1); Serial.print("\t");  Serial.print((float)gy1); Serial.print("\t");  Serial.println((float)gz1);
+
+  /******************************************************************/
+  //measureCriticalSensors();
+   frameCounter++;
+   process100HzTask();
+  //digitalWrite(13,HIGH);
+ /* ax1=0;
+  ay1=0;
+  az1=0;
+  gx1=0;
+  gy1=0;
+  gz1=0;*/
+  deltaTime = currentTime - previousTime;
+  previousTime=currentTime;
+ //Serial.print(1000000/deltaTime);Serial.println("\t");
+ delay(6);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+  /*void measureCriticalSensors() {
+    measureGyro();
+    measureAccel();
+  }*/
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* getReceiverSIData*/
