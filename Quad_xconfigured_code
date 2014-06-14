@@ -1,0 +1,614 @@
+#include "PinChangeInt1.h"
+#include <Servo.h>
+int led = 13;
+double angles[4];
+#define MAXANGLE 160
+//////////////////////////define///////////////////////////////////
+#include "Wire.h"
+
+Servo mymotor4, mymotor1, mymotor2, mymotor3;
+
+uint8_t buffer[14];
+int16_t ax=0, ay=0, az=0;
+int16_t gx=0, gy=0, gz=0;
+
+float ax1=0, ay1=0, az1=0;
+float gx1=0, gy1=0, gz1=0;
+#define MPU6050_Defalt_Addr     0x68
+
+#define MPU6050_CLOCK_INTERNAL          0x00
+#define MPU6050_CLOCK_PLL_XGYRO         0x01
+#define MPU6050_CLOCK_PLL_YGYRO         0x02
+#define MPU6050_CLOCK_PLL_ZGYRO         0x03
+#define MPU6050_CLOCK_PLL_EXT32K        0x04
+#define MPU6050_CLOCK_PLL_EXT19M        0x05
+#define MPU6050_CLOCK_KEEP_RESET        0x07
+
+#define MPU6050_GYRO_FS_250         0x00
+#define MPU6050_GYRO_FS_500         0x01
+#define MPU6050_GYRO_FS_1000        0x02
+#define MPU6050_GYRO_FS_2000        0x03
+
+
+#define MPU6050_ACCEL_FS_2          0x00
+#define MPU6050_ACCEL_FS_4          0x01
+#define MPU6050_ACCEL_FS_8          0x02
+#define MPU6050_ACCEL_FS_16         0x03
+
+#define MPU6050_RA_PWR_MGMT_1       0x6B
+#define MPU6050_RA_PWR_MGMT_2       0x6C
+#define MPU6050_PWR1_CLKSEL_BIT         2
+#define MPU6050_PWR1_CLKSEL_LENGTH      3
+#define MPU6050_RA_GYRO_CONFIG      0x1B
+
+#define MPU6050_GCONFIG_FS_SEL_BIT      4
+#define MPU6050_GCONFIG_FS_SEL_LENGTH   2
+
+#define MPU6050_RA_ACCEL_CONFIG     0x1C
+#define MPU6050_ACONFIG_AFS_SEL_BIT         4
+#define MPU6050_ACONFIG_AFS_SEL_LENGTH      2
+
+#define MPU6050_PWR1_SLEEP_BIT          6
+#define MPU6050_RA_FIFO_EN          0x23
+
+#define MPU6050_TEMP_FIFO_EN_BIT    7
+#define MPU6050_XG_FIFO_EN_BIT      6
+#define MPU6050_YG_FIFO_EN_BIT      5
+#define MPU6050_ZG_FIFO_EN_BIT      4
+#define MPU6050_ACCEL_FIFO_EN_BIT   3
+
+#define MPU6050_RA_I2C_MST_CTRL     0x24
+#define MPU6050_I2C_MST_CLK_BIT     3
+#define MPU6050_I2C_MST_CLK_LENGTH  4
+#define MPU6050_RA_ACCEL_XOUT_H     0x3B
+
+#define MPU6050_RA_SMPLRT_DIV       0x19
+
+#define MPU6050_RA_CONFIG              0x1A
+#define MPU6050_CFG_DLPF_CFG_BIT          2
+#define MPU6050_CFG_DLPF_CFG_LENGTH       3
+
+#define ON 1
+#define OFF 0
+#define STOP 1100
+#define XAXIS 0
+#define YAXIS 1
+#define ZAXIS 2
+
+#define MINCHECK (MINCOMMAND + 100)
+#define MINCOMMAND 1000
+
+#define FRONT1 MOTOR1
+#define FRONT2 MOTOR2
+#define REAR1 MOTOR3
+#define REAR2 MOTOR4
+
+#define LASTMOTOR (MOTOR4+1)
+
+
+#define MOTOR1 0
+#define MOTOR2 1
+#define MOTOR3 2
+#define MOTOR4 3
+
+
+#define MINCOMMAND 1050
+#define MAXCOMMAND 1916
+
+
+#define YAW_DIRECTION -1
+#define YAW_DIRECTION 1
+
+
+#define MOTORPIN0 7
+#define MOTORPIN1 6
+#define MOTORPIN2 5
+#define MOTORPIN3 4
+
+#define MIN_RUDD 1200
+#define MAX_RUDD 1800
+#define MIN_THROT 1300
+#define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
+
+#define RATE_XAXIS_PID_IDX  0
+#define RATE_YAXIS_PID_IDX  1
+#define ZAXIS_PID_IDX  2
+uint8_t devAddr;
+
+
+
+unsigned long frameCounter = 0; 
+int minArmedThrottle; 
+
+float throttle =0;
+float eleval=0;
+float ruddval=0;
+float alival=0;
+byte motorArmed = OFF;
+byte safetyCheck = OFF;
+//byte maxLimit = OFF;
+//byte minLimit = OFF;
+//float filteredAccel[3] = {0.0,0.0,0.0};
+boolean inFlight = false; 
+float rotationSpeedFactor = 1.0;
+int i;
+
+unsigned long previousTime = 0;
+unsigned long currentTime = 0;
+unsigned long deltaTime = 0;
+unsigned long hundredHZpreviousTime = 0;
+int motorMaxCommand[4] = {1900,1900,1900,1900};
+int motorMinCommand[4] = {1100,1100,1100,1100};
+float motorCommand[4] ;
+float motorAxisCommandRoll = 0;
+float motorAxisCommandPitch = 0;
+float motorAxisCommandYaw = 0; 
+float gyroRate[3] = {0.0,0.0,0.0};
+float gyroZero[3] = {0,0,0};
+float gyroSample[3] = {0,0,0}; 
+byte gyroSampleCount = 0;
+float set1=0, set2=0 ,set3=0;
+
+int led1 = 37;
+int led2 = 39;
+////////////////////////////////////////RECEIVER CODE//////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+#define AILERON  0
+#define ELEVATOR 1
+#define THROTTLE 2
+#define RUDDER   3
+
+#define AILERON_IN  10
+#define ELEVATOR_IN 11
+#define THROTTLE_IN 12
+#define RUDDER_IN   13
+
+uint8_t rc_pins[4] = {AILERON_IN, ELEVATOR_IN, THROTTLE_IN, RUDDER_IN};
+uint8_t rc_flags[4] = {1, 2, 4, 8};
+uint16_t rc_values[4] = {0, 0, 0, 1500};
+
+volatile uint8_t rc_shared_flags;
+volatile uint16_t rc_shared_values[4];
+volatile uint32_t rc_shared_ts[4];
+
+void rc_channel_change(uint8_t id) {
+  if (digitalRead(rc_pins[id]) == HIGH) {
+    rc_shared_ts[id] = micros();
+  }
+  else {
+    rc_shared_values[id] = (uint16_t)(micros() - rc_shared_ts[id]);
+    rc_shared_flags |= rc_flags[id];
+  }
+}
+
+void rc_aileron_change()  { rc_channel_change(AILERON);  }
+void rc_elevator_change() { rc_channel_change(ELEVATOR); }
+void rc_throttle_change() { rc_channel_change(THROTTLE); }
+void rc_rudder_change()   { rc_channel_change(RUDDER);   }
+
+void rc_setup_interrupts() {
+  PCintPort::attachInterrupt(rc_pins[AILERON],  &rc_aileron_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[ELEVATOR], &rc_elevator_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[THROTTLE], &rc_throttle_change, CHANGE);
+  PCintPort::attachInterrupt(rc_pins[RUDDER],   &rc_rudder_change, CHANGE);
+}
+
+void rc_process_channels() {
+  static uint8_t flags;
+  
+  if (rc_shared_flags) {
+    noInterrupts();
+    flags = rc_shared_flags;
+    
+    if (flags & rc_flags[0]) rc_values[0] = rc_shared_values[0];
+    if (flags & rc_flags[1]) rc_values[1] = rc_shared_values[1];
+    if (flags & rc_flags[2]) rc_values[2] = rc_shared_values[2];
+    if (flags & rc_flags[3]) rc_values[3] = rc_shared_values[3];
+    
+    rc_shared_flags = 0;
+    interrupts(); 
+  }
+
+  flags = 0;
+}
+
+
+void rc_print_channels() {
+  static char str[64];
+ 
+  sprintf(str, "AILE: %d, ELEV: %d, THRO: %d, RUDD: %d\n",
+    rc_values[0], rc_values[1], rc_values[2], rc_values[3]
+  );
+ 
+  Serial.print(str); 
+}
+
+void rc_channel_map()  {
+ 
+ angles[0]=(double)(rc_values[0]-920)*160/1196;        //configure later..
+ angles[1]=(double)(rc_values[1]-920)*160/1176; 
+ angles[2]=(double)(rc_values[2]-1108)*160/820; 
+ angles[3]=(double)(rc_values[3]-1000)*160/1048; 
+ 
+ for(int i=0;i<4;i++) { 
+    if(angles[i] < 0)
+      angles[i] = 0;
+    if(angles[i] > MAXANGLE)
+      angles[i] = MAXANGLE;
+ 
+ }  
+}
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+/*uint16_t roll(uint16_t rc_){}
+uint16_t pitch(uint16_t rc_ELEVATOR){}
+uint16_t yaw(uint16_t){}*/
+/////////////////////////I2Cdev//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ bool writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t* data) {
+    uint8_t status = 0;
+        Wire.beginTransmission(devAddr);
+        Wire.write((uint8_t) regAddr); // send address
+    
+    for (uint8_t i = 0; i < length; i++) 
+            Wire.write((uint8_t) data[i]);
+   
+        status = Wire.endTransmission();
+    return status == 0;
+}
+/////////////////////////////////////////////////////////////////////////////////
+bool writeBit(uint8_t devAddr, uint8_t regAddr, uint8_t bitNum, uint8_t data) {
+    uint8_t b;
+    readByte(devAddr, regAddr, &b);
+    b = (data != 0) ? (b | (1 << bitNum)) : (b & ~(1 << bitNum));
+    return writeByte(devAddr, regAddr, b);
+}
+//////////////////////////////////////////////////////////
+int8_t readByte(uint8_t devAddr, uint8_t regAddr, uint8_t *data) {
+    return readBytes(devAddr, regAddr, 1, data);
+}
+////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *data) {
+    int8_t count = 0;
+    for (uint8_t k = 0; k < length; k += min(length, BUFFER_LENGTH)) {
+                Wire.beginTransmission(devAddr);
+                Wire.write(regAddr);
+                Wire.endTransmission();
+                Wire.beginTransmission(devAddr);
+                Wire.requestFrom(devAddr, (uint8_t)min(length - k, BUFFER_LENGTH));
+        
+                for (; Wire.available(); count++) {
+                    data[count] = Wire.read();
+                }
+            }
+    return count;
+}
+////////////////////////////////////////////////////////////////////////////////////////
+bool writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data) {
+    return writeBytes(devAddr, regAddr, 1, &data);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBit(uint8_t devAddr, uint8_t regAddr, uint8_t bitNum, uint8_t *data) {
+    uint8_t b;
+    uint8_t count = readByte(devAddr, regAddr, &b);
+    *data = b & (1 << bitNum);
+    return count;
+}
+//////////////////////////////////////////////////////////////////////////////////////////////
+bool writeBits(uint8_t devAddr, uint8_t regAddr, uint8_t bitStart, uint8_t length, uint8_t data) {
+    uint8_t b;
+    if (readByte(devAddr, regAddr, &b) != 0) {
+        uint8_t mask = ((1 << length) - 1) << (bitStart - length + 1);
+        data <<= (bitStart - length + 1); // shift data into correct position
+        data &= mask; // zero all non-important bits in data
+        b &= ~(mask); // zero all important bits in existing byte
+        b |= data; // combine data with existing byte
+        return writeByte(devAddr, regAddr, b);
+    } else {
+        return false;
+    }
+}
+////////////////////////////////////////////////////////////////////////////////////////////////
+int8_t readBits(uint8_t devAddr, uint8_t regAddr, uint8_t bitStart, uint8_t length, uint8_t *data) {
+   
+    uint8_t count, b;
+    if ((count = readByte(devAddr, regAddr, &b )) != 0) {
+        uint8_t mask = ((1 << length) - 1) << (bitStart - length + 1);
+        b &= mask;
+        b >>= (bitStart - length + 1);
+        *data = b;
+    }
+    return count;
+}
+//////////////////////////////MPU6050/////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void MPU6050(){
+  devAddr=MPU6050_Defalt_Addr;
+}
+///////////////////////////////////////////////////////////////////////////////////
+void initialize() {
+    setClockSource(MPU6050_CLOCK_PLL_XGYRO);
+    setFullScaleGyroRange(MPU6050_GYRO_FS_250);
+    setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+    setSleepEnabled(false); 
+}
+/////////////////////////////////////////////////////////////////////////////////////////
+void setClockSource(uint8_t source) {
+    writeBits(devAddr, MPU6050_RA_PWR_MGMT_1, MPU6050_PWR1_CLKSEL_BIT, MPU6050_PWR1_CLKSEL_LENGTH, source);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+void setFullScaleGyroRange(uint8_t range) {
+    writeBits(devAddr, MPU6050_RA_GYRO_CONFIG, MPU6050_GCONFIG_FS_SEL_BIT, MPU6050_GCONFIG_FS_SEL_LENGTH, range);
+}
+///////////////////////////////////////////////////////////////////////////////////////
+void setFullScaleAccelRange(uint8_t range) {
+    writeBits(devAddr, MPU6050_RA_ACCEL_CONFIG, MPU6050_ACONFIG_AFS_SEL_BIT, MPU6050_ACONFIG_AFS_SEL_LENGTH, range);
+}
+////////////////////////////////////////////////////////////////////////////////////////////
+void setSleepEnabled(bool enabled) {
+    writeBit(devAddr, MPU6050_RA_PWR_MGMT_1, MPU6050_PWR1_SLEEP_BIT, enabled);
+}
+////////////////////////////////////////////////////////////////////////////////////////
+void setRate(uint8_t rate) {
+    writeByte(devAddr, MPU6050_RA_SMPLRT_DIV, rate);
+}
+//////////////////////////////////////////////////////////////////////////////////////////
+void setDLPFMode(uint8_t mode) {
+    writeBits(devAddr, MPU6050_RA_CONFIG, MPU6050_CFG_DLPF_CFG_BIT, MPU6050_CFG_DLPF_CFG_LENGTH, mode);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void getMotion6(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz) {
+    readBytes(devAddr, MPU6050_RA_ACCEL_XOUT_H, 14, buffer);
+ //for(i=0;i<5;i++){
+    *ax = (((int16_t)buffer[0]) << 8) | buffer[1];
+    *ay = (((int16_t)buffer[2]) << 8) | buffer[3];
+    *az = (((int16_t)buffer[4]) << 8) | buffer[5];
+    *gx = (((int16_t)buffer[8]) << 8) | buffer[9];
+    *gy = (((int16_t)buffer[10]) << 8) | buffer[11];
+    *gz = (((int16_t)buffer[12]) << 8) | buffer[13];
+   /**/
+ //}
+  /* *ax /= 5;
+   *ay /= 5;
+   *az /= 5;
+   *gx /= 5;
+   *gy /= 5;
+   *gz /= 5;*/
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////
+/*void convert(int16_t* ax, int16_t* ay, int16_t* az, int16_t* gx, int16_t* gy, int16_t* gz){
+   ax1=(float)ax/16384;
+    ay1=(float)ay/16384;
+    az1=(float)az/16384;
+    gx1=(float)gx/131;
+    gy1=(float)gy/131;
+    gz1=(float)gz/131;
+    Serial.print(gx1);Serial.print("\t");
+}*/
+
+
+////////////////////////////////////////////////////////AEROQUAD CODE///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void process100HzTask() {
+  
+ // G_Dt = (currentTime - hundredHZpreviousTime) / 1000000.0;
+ //` hundredHZpreviousTime = currentTime;
+  evaluateGyroRate();        
+  processFlightControl();
+  
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void processFlightControl() {
+  calculateFlightError();
+  if (motorArmed==ON) {
+    applyMotorCommand();
+    }
+  
+ //  else motorCommand[FRONT1] = 1100; motorCommand[FRONT2] = 1100; motorCommand[REAR1] =1100; motorCommand[REAR2]=1100;   }
+
+ for (byte motor = 0; motor < LASTMOTOR; motor++) {
+    motorCommand[motor] = constrain(motorCommand[motor], motorMinCommand[motor], motorMaxCommand[motor]);
+  }
+ if (motorArmed == ON) {
+    writeMotors();
+  }
+ if (motorArmed== OFF){
+   for (byte motor = 0; motor < LASTMOTOR; motor++) {
+    motorCommand[motor] =1100;
+  }
+    writeMotors();
+ }
+ // Serial.print("FRONT1");Serial.print("\t");Serial.print(motorCommand[MOTOR1]); Serial.print("\t"); Serial.print("FRONT2");Serial.print("\t");Serial.print(motorCommand[MOTOR2]); Serial.print("\t"); Serial.print("REAR1");Serial.print("\t");Serial.print(motorCommand[MOTOR3]); Serial.print("\t"); Serial.print("REAR2");Serial.print("\t");Serial.println(motorCommand[MOTOR4]);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  
+struct PIDdata {
+  float P, I, D;
+  float lastError;
+  // AKA experiments with PID
+  float previousPIDTime;
+  float integratedError;
+  float windupGuard; // Thinking about having individual wind up guards for each PID
+} PID[3];
+
+
+void getpiddata(){
+  PID [RATE_XAXIS_PID_IDX].P = 74;
+  PID [RATE_XAXIS_PID_IDX].I = 0;
+  PID [RATE_XAXIS_PID_IDX].D =  -1;
+
+  PID [RATE_YAXIS_PID_IDX].P = 74;
+  PID [RATE_YAXIS_PID_IDX].I = 0;
+  PID [RATE_YAXIS_PID_IDX].D = -1;
+
+  PID [ZAXIS_PID_IDX].P = 125;
+  PID [ZAXIS_PID_IDX].I = 0;
+  PID [ZAXIS_PID_IDX].D = 0;  
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+void calculateFlightError()
+{
+  ruddval=((float)rc_values[3]-1500)/100;
+  throttle=(float)rc_values[2];
+  eleval=((float)rc_values[1]-1500)/100;
+  alival=((float)rc_values[0]-1500)/100;
+    const float commandedYaw = constrain(ruddval, -PI, PI);
+   motorAxisCommandYaw = updatePID(commandedYaw, gyroRate[ZAXIS], &PID[ZAXIS_PID_IDX]); 
+   motorAxisCommandRoll = updatePID(alival, gyroRate[XAXIS]*rotationSpeedFactor, &PID[RATE_XAXIS_PID_IDX]);
+   motorAxisCommandPitch = updatePID(eleval, -gyroRate[YAXIS]*rotationSpeedFactor, &PID[RATE_YAXIS_PID_IDX]);
+//   Serial.println(eleval);
+}
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void applyMotorCommand() {
+  motorCommand[FRONT1] = throttle + motorAxisCommandPitch + (YAW_DIRECTION * motorAxisCommandYaw) + motorAxisCommandRoll;
+  motorCommand[FRONT2] = throttle + motorAxisCommandPitch - (YAW_DIRECTION * motorAxisCommandYaw)  - motorAxisCommandRoll ;
+  motorCommand[REAR1] = throttle - motorAxisCommandPitch - (YAW_DIRECTION * motorAxisCommandYaw) + motorAxisCommandRoll;
+  motorCommand[REAR2] = throttle - motorAxisCommandPitch + (YAW_DIRECTION * motorAxisCommandYaw) - motorAxisCommandRoll;
+ // Serial.println(eleval);
+}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void writeMotors() {
+    mymotor1.writeMicroseconds(motorCommand[MOTOR1]);
+    mymotor2.writeMicroseconds(motorCommand[MOTOR2]);
+    mymotor3.writeMicroseconds(motorCommand[MOTOR3]);
+    mymotor4.writeMicroseconds(motorCommand[MOTOR4]);
+  /*analogWrite(MOTORPIN0, motorCommand[MOTOR1] / 8);
+  analogWrite(MOTORPIN1, motorCommand[MOTOR2] / 8);
+  analogWrite(MOTORPIN2, motorCommand[MOTOR3] / 8);                             ////////////WHY DIVIDE BY 8 WE HAVE ALREADY MAPPED////
+  analogWrite(MOTORPIN3, motorCommand[MOTOR4] / 8); */
+// Serial.print("FRONT1");Serial.print("\t");Serial.print(motorCommand[MOTOR1]); Serial.print("\t"); Serial.print("FRONT2");Serial.print("\t");Serial.print(motorCommand[MOTOR2]); Serial.print("\t"); Serial.print("REAR1");Serial.print("\t");Serial.print(motorCommand[MOTOR3]); Serial.print("\t"); Serial.print("REAR2");Serial.print("\t");Serial.println(motorCommand[MOTOR4]);
+ 
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+float updatePID(float targetPosition, float currentPosition, struct PIDdata* PIDparameters) {
+
+  // AKA PID experiments
+  const float deltaPIDTime = (currentTime - PIDparameters->previousPIDTime) / 1000000.0;
+
+  PIDparameters->previousPIDTime = currentTime; // AKA PID experiments
+  float error = targetPosition - currentPosition;
+  //Serial.print(error);Serial.print("\t");
+  if (inFlight) {
+    PIDparameters->integratedError += error * deltaPIDTime;
+  }
+  else {
+    PIDparameters->integratedError = 0.0;
+  }
+  PIDparameters->integratedError = constrain(PIDparameters->integratedError, -PIDparameters->windupGuard, PIDparameters->windupGuard);
+  float dTerm = PIDparameters->D * (currentPosition - PIDparameters->lastError) / (deltaPIDTime * 100); // dT fix from Honk
+  PIDparameters->lastError = currentPosition;
+
+  return (PIDparameters->P * error) + (PIDparameters->I * PIDparameters->integratedError) + dTerm;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void evaluateGyroRate() {
+  gyroRate[XAXIS]=gx1/180*3.14;
+  gyroRate[YAXIS]=gy1/180*3.14;                                 ///////////////////////   CONFIRM THE DIRECTIONS OF GYRO
+  gyroRate[ZAXIS]=gz1/180*3.14;
+  //Serial.println(gyroRate[YAXIS]);
+ //Serial.print(gyroRate[XAXIS]); Serial.print("\t");  Serial.print(gyroRate[YAXIS]); Serial.print("\t");  Serial.print(gyroRate[ZAXIS]);Serial.println("\t");
+}
+///////////////////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////////////////
+void arming(){
+  if(rc_values[3]<=MIN_RUDD&&throttle<=MIN_THROT){
+    motorArmed=1;
+    inFlight= false;
+    digitalWrite(led1, LOW);
+  //  digitalWrite(led, LOW);
+    }
+  if(rc_values[3]>=MAX_RUDD&&throttle<=MIN_THROT){
+    motorArmed=0;
+   // digitalWrite(led, HIGH);
+    inFlight= true;
+    digitalWrite(led2, HIGH);
+    
+    }}
+//////////////////////////////////////////////////////////////////////////////////
+void setOffSets(){
+  for(i=0;i<100;i++){
+    getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    set1=set1 + (float)gx/131 ;
+    set2=set2 + (float)gy/131 ;
+    set3=set3 + (float)gz/131 ;
+  }
+  set1 = set1/100;
+  set2 = set2/100;
+  set3 = set3/100;
+//Serial.print(set1);  Serial.print("\t");  Serial.print(set2); Serial.print("\t");  Serial.print(set3);
+
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void Convert(){
+    ax1=((float)ax/16384);
+    ay1=((float)ay/16384);
+    az1=((float)az/16384);
+    gx1=(((float)gx/131) - set1);
+    gy1=(((float)gy/131) - set2);
+    gz1=(((float)gz/131) - set3);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+void setup() {
+  Wire.begin();
+  Serial.begin(115200);
+  mymotor1.attach(7);
+  mymotor2.attach(6);
+  mymotor3.attach(5);
+  mymotor4.attach(4);  
+  
+  rc_setup_interrupts();
+  MPU6050();
+  initialize();
+  setRate(0);
+  setDLPFMode(4);
+  getpiddata();
+  pinMode(led1, OUTPUT); 
+  pinMode(led2, OUTPUT);
+  digitalWrite(led2, HIGH);  
+// motorArmed=0;
+//Serial.println(motorArmed);
+  setOffSets();  
+  delay(1000);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+void loop() { 
+  currentTime = micros();
+  arming();
+  rc_process_channels();
+  getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  // rc_print_channels();
+  Convert();
+  Serial.print((float)ay1); Serial.print("\t");  Serial.print((float)az1); Serial.print("\t");  Serial.print((float)gx1); Serial.print("\t");  Serial.print((float)gy1); Serial.print("\t");  Serial.println((float)gz1);
+   frameCounter++;
+   process100HzTask();
+   deltaTime = currentTime - previousTime;
+   previousTime=currentTime;
+ //Serial.print(1000000/deltaTime);Serial.println("\t");
+ delay(6);
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+  /*void measureCriticalSensors() {
+    measureGyro();
+    measureAccel();
+  }*/
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* getReceiverSIData*/
